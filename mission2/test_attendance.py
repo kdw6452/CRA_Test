@@ -1,7 +1,7 @@
 import pytest
 from grading_strategies import NormalGradingStrategy, SilverGradingStrategy, GoldGradingStrategy
 from attendance import AttendanceSystem, Grade, InvalidDataError
-from bonus_strategies import BONUS_POINTS, BONUS_ATTENDANCE_COUNT
+from bonus_strategies import BONUS_POINTS, BONUS_ATTENDANCE_COUNT, WednesdayBonusStrategy, WeekendBonusStrategy, AllBonusStrategy
 from grading_factory import GradingStrategyFactory, GOLD_GRADE_POINT, SILVER_GRADE_POINT
 
 @pytest.fixture
@@ -9,7 +9,76 @@ def system():
     return AttendanceSystem()
 
 
-# ... (기존 테스트 함수들) ...
+
+def test_normal_grading_strategy_print_summary(system, capsys):
+    """
+    NormalGradingStrategy의 print_summary가 올바른 결과를 출력하는지 테스트
+    """
+    user_name = "test_normal_user"
+    user_id = system.get_or_create_user_id(user_name)
+    system.points[user_id] = 20  # NORMAL 등급에 해당하는 포인트
+
+    strategy = NormalGradingStrategy()
+    strategy.print_summary(user_id, system)
+
+    captured = capsys.readouterr()
+    expected_output = f"NAME : {user_name}, POINT : 20, GRADE : NORMAL\n"
+    assert captured.out == expected_output
+
+
+def test_silver_grading_strategy_print_summary(system, capsys):
+    """
+    SilverGradingStrategy의 print_summary가 올바른 결과를 출력하는지 테스트
+    """
+    user_name = "test_silver_user"
+    user_id = system.get_or_create_user_id(user_name)
+    system.points[user_id] = 40  # SILVER 등급에 해당하는 포인트
+
+    strategy = SilverGradingStrategy()
+    strategy.print_summary(user_id, system)
+
+    captured = capsys.readouterr()
+    expected_output = f"NAME : {user_name}, POINT : 40, GRADE : SILVER\n"
+    assert captured.out == expected_output
+
+
+def test_gold_grading_strategy_print_summary(system, capsys):
+    """
+    GoldGradingStrategy의 print_summary가 올바른 결과를 출력하는지 테스트
+    """
+    user_name = "test_gold_user"
+    user_id = system.get_or_create_user_id(user_name)
+    system.points[user_id] = 60  # GOLD 등급에 해당하는 포인트
+
+    strategy = GoldGradingStrategy()
+    strategy.print_summary(user_id, system)
+
+    captured = capsys.readouterr()
+    expected_output = f"NAME : {user_name}, POINT : 60, GRADE : GOLD\n"
+    assert captured.out == expected_output
+
+def test_process_line_invalid_data_format(system, capsys):
+    """잘못된 형식의 데이터 처리 테스트"""
+    invalid_line = "user_name"
+    system.process_line(invalid_line)
+
+    captured = capsys.readouterr()
+    assert "경고: 잘못된 형식의 데이터: 'user_name'" in captured.out
+
+
+def test_record_attendance_invalid_day_records_no_attendance(system, capsys):
+    user_name = "test_user_invalid"
+    initial_user_id_cnt = system.user_id_cnt
+
+    system.record_attendance(user_name, "invalid_day")
+
+    captured = capsys.readouterr()
+    assert "경고: 알 수 없는 요일" in captured.out
+
+    # 사용자는 생성되었지만, 출석은 기록되지 않음
+    assert system.user_id_cnt == initial_user_id_cnt + 1
+    user_id = system.user_name_to_id[user_name]
+    assert system.points[user_id] == 0
 
 def test_grading_factory_returns_correct_strategy(system):
     """
@@ -95,6 +164,99 @@ def test_get_or_create_user_id_returns_existing_user_id(system):
     assert user_id == 1
     assert system.user_name_to_id[user_name] == 1
 
+
+def create_user_and_set_attendance(system, user_name, attendance_counts):
+    """
+    테스트에 필요한 사용자를 생성하고 출석 횟수를 설정하는 헬퍼 함수
+    attendance_counts는 7개의 요일별 출석 횟수 리스트
+    """
+    user_id = system.get_or_create_user_id(user_name)
+    system.attendance_by_day[user_id] = attendance_counts
+    return user_id
+
+
+def test_wednesday_bonus_strategy_applies_bonus(system):
+    """
+    수요일 보너스 전략이 보너스 포인트를 올바르게 적용하는지 테스트
+    """
+    user_name = "wed_bonus_user"
+    user_id = create_user_and_set_attendance(system, user_name, [0, 0, 10, 0, 0, 0, 0])
+
+    initial_points = system.points[user_id]
+    strategy = WednesdayBonusStrategy()
+    strategy.calculate(user_id, system)
+
+    assert system.points[user_id] == initial_points + BONUS_POINTS
+
+
+def test_wednesday_bonus_strategy_no_bonus(system):
+    """
+    수요일 출석 횟수가 부족할 때 보너스가 적용되지 않는지 테스트
+    """
+    user_name = "wed_no_bonus_user"
+    user_id = create_user_and_set_attendance(system, user_name, [0, 0, 9, 0, 0, 0, 0])
+
+    initial_points = system.points[user_id]
+    strategy = WednesdayBonusStrategy()
+    strategy.calculate(user_id, system)
+
+    assert system.points[user_id] == initial_points
+
+
+def test_weekend_bonus_strategy_applies_bonus(system):
+    """
+    주말 보너스 전략이 보너스 포인트를 올바르게 적용하는지 테스트
+    """
+    user_name = "weekend_bonus_user"
+    user_id = create_user_and_set_attendance(system, user_name, [0, 0, 0, 0, 0, 5, 5])
+
+    initial_points = system.points[user_id]
+    strategy = WeekendBonusStrategy()
+    strategy.calculate(user_id, system)
+
+    assert system.points[user_id] == initial_points + BONUS_POINTS
+
+
+def test_weekend_bonus_strategy_no_bonus(system):
+    """
+    주말 출석 횟수가 부족할 때 보너스가 적용되지 않는지 테스트
+    """
+    user_name = "weekend_no_bonus_user"
+    user_id = create_user_and_set_attendance(system, user_name, [0, 0, 0, 0, 0, 4, 5])
+
+    initial_points = system.points[user_id]
+    strategy = WeekendBonusStrategy()
+    strategy.calculate(user_id, system)
+
+    assert system.points[user_id] == initial_points
+
+
+def test_all_bonus_strategy_applies_both_bonuses(system):
+    """
+    모든 보너스 전략이 모두 적용되는지 테스트
+    """
+    user_name = "all_bonus_user"
+    user_id = create_user_and_set_attendance(system, user_name, [0, 0, 10, 0, 0, 5, 5])
+
+    initial_points = system.points[user_id]
+    strategy = AllBonusStrategy()
+    strategy.calculate(user_id, system)
+
+    assert system.points[user_id] == initial_points + BONUS_POINTS * 2
+
+
+def test_all_bonus_strategy_applies_one_bonus(system):
+    """
+    모든 보너스 전략 중 하나만 적용되는 경우 테스트
+    """
+    user_name = "one_bonus_user"
+    user_id = create_user_and_set_attendance(system, user_name, [0, 0, 10, 0, 0, 4, 5])
+
+    initial_points = system.points[user_id]
+    strategy = AllBonusStrategy()
+    strategy.calculate(user_id, system)
+
+    assert system.points[user_id] == initial_points + BONUS_POINTS
 
 def test_record_attendance(system):
     user_name = "test_user3"
