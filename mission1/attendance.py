@@ -52,7 +52,7 @@ def print_removed_players(user_id_cnt, grade, names, wed, weekend):
             print(names[i])
 
 def update_user_attendance(user_name, day_of_week):
-    day_info = {
+    DAY_INFO = {
         "monday": {"index": 0, "add_point": DAILY_POINT},
         "tuesday": {"index": 1, "add_point": DAILY_POINT},
         "wednesday": {"index": 2, "add_point": WEDNESDAY_POINT, "is_wednesday": True},
@@ -62,10 +62,12 @@ def update_user_attendance(user_name, day_of_week):
         "sunday": {"index": 6, "add_point": WEEKEND_POINT, "is_weekend": True},
     }
 
-    user_id = get_or_create_user_id(user_name)
+    try:
+        if day_of_week not in DAY_INFO:
+            raise Exception
 
-    if day_of_week in day_info:
-        info = day_info[day_of_week]
+        user_id = get_or_create_user_id(user_name)
+        info = DAY_INFO[day_of_week]
         add_point = info["add_point"]
         index = info["index"]
 
@@ -74,10 +76,11 @@ def update_user_attendance(user_name, day_of_week):
 
         if info.get("is_wednesday"):
             wednesday_attendance_count[user_id] += 1
-
         if info.get("is_weekend"):
             weekend_attendance_count[user_id] += 1
 
+    except Exception as e:
+        print(f"예상치 못한 오류 발생: {e}")
 
 
 def calculate_bonus_points(user_id):
@@ -103,17 +106,22 @@ def print_user_summary(user_id):
     grade_text = grade_map.get(grade[user_id], "NORMAL")
     print(f"NAME : {names[user_id]}, POINT : {points[user_id]}, GRADE : {grade_text}")
 
+def process_line(line):
+    try:
+        parts = line.strip().split()
+        if len(parts) != 2:
+            raise Exception
+        user_name, day_of_week = parts
+        update_user_attendance(user_name, day_of_week)
+    except Exception as e:
+        print(f"예상치 못한 오류 발생: {e}")
+
 def input_file():
     try:
-        with open("attendance_weekday_500.txt", encoding='utf-8') as f:
-            for _ in range(500):
-                line = f.readline()
-                if not line:
-                    break
-                parts = line.strip().split()
-                if len(parts) == 2:
-                    update_user_attendance(parts[0], parts[1])
-
+        file_path = "attendance_weekday_500.txt"
+        with open(file_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                process_line(line)
         for i in range(1, user_id_cnt + 1):
             calculate_bonus_points(i)
             determine_grade(i)
